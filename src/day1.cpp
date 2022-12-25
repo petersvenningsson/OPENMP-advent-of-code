@@ -1,9 +1,44 @@
 #include <iostream>
-#include <fstream>
-#include <string>
 #include <vector>
-#include <numeric>
-#include <algorithm>
+#include <fstream>
+#include <cstdlib>
+#include <string>
+#include <stdexcept>
+#include <omp.h>
+
+#define SCISSOR
+#define EVER (;;)
+
+std::vector<std::string> read_file(std::string filename)
+{ 
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Could not open file");
+    }
+
+    std::string line;
+    std::vector<std::string> data;
+    while (std::getline(file,line)) {
+        if (line.length())
+            data.push_back(line);
+    }
+
+    return data;
+}
+
+int calculate_score(std::string line)
+{
+    int opponent_move = line.at(0) - 'A';
+    int player_move = line.at(2) - 'X';
+
+    int score = player_move + 1;
+    if (opponent_move == player_move)
+        score += 3;
+    else if ((player_move - opponent_move + 3) % 3 == 1)
+        score += 6;
+
+    return score;
+}
 
 int main(int argc, char **argv)
 {
@@ -15,34 +50,29 @@ int main(int argc, char **argv)
         }
     }
 
-    std::ifstream file(argv[1]);
-    if (!file.is_open()) {
-        std::cout << "Invalid filepath" << std::endl;
-        return 0;
-    }
+    std::vector<std::string> data = read_file(args[1]);
 
-    std::vector<std::vector<int>> food_sacks;
-    std::vector<int> sack;
-    std::string line;
+    double score = 0;
+    int num_threads;
+    #pragma omp parallel shared(num_threads)
+    {
+        int ID = omp_get_thread_num();
 
-    while (std::getline(file,line)) {
-        if (line.length() == 0) {
-            food_sacks.push_back(sack);
-            sack.clear();
-        } else {
-            sack.push_back(std::stoi(line));
+        if (ID == 0) {
+            num_threads = omp_get_num_threads();
         }
-    }
-    
-    std::vector<int> calories;
-#pragma omp parallel for
-    for (auto sack : food_sacks) {
-        int sum = std::accumulate(sack.begin(), sack.end(), 0);
-#pragma omp critical
-        calories.push_back(sum);
-    }
-    auto max = std::max_element(calories.begin(), calories.end());
 
-    std::cout << "The maximum amount of calories is: " << *max << std::endl;
-    return 0;
+        #pragma omp barrier
+        int partial_score = 0;
+        for (int i=ID; i < data.size(); i+=num_threads) {
+            std::string line = data[i];
+            partial_score += calculate_score(line);
+        }
+
+        #pragma omp critical
+        score += partial_score;
+    }
+    std::cout << "Score is: " << score << std::endl;
+
 }
+
